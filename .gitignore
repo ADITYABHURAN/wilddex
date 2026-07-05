@@ -43,6 +43,7 @@ yarn-error.*
 # secrets (broader coverage)
 .env
 .env.*
+!.env.example
 *-key.json
 google-services.json
 GoogleService-Info.plist

@@ -1,10 +1,13 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View, Image, SafeAreaView, ActivityIndicator } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { User } from 'firebase/auth';
 import { identifyAnimal, CatchResult } from './lib/identify';
 import { saveCatch } from './lib/storage';
+import { onAuthChange, signOutUser } from './lib/auth';
 import { Rarity } from './data/species';
 import DexScreen from './screens/DexScreen';
+import AuthScreen from './screens/AuthScreen';
 
 const RARITY_COLORS: Record<Rarity, string> = {
   common: '#8b949e',
@@ -16,7 +19,15 @@ const RARITY_COLORS: Record<Rarity, string> = {
 
 type Screen = 'camera' | 'dex';
 
-function TabHeader({ screen, setScreen }: { screen: Screen; setScreen: (s: Screen) => void }) {
+function TabHeader({
+  screen,
+  setScreen,
+  onSignOut,
+}: {
+  screen: Screen;
+  setScreen: (s: Screen) => void;
+  onSignOut: () => void;
+}) {
   return (
     <View style={styles.tabRow}>
       <TouchableOpacity
@@ -31,11 +42,16 @@ function TabHeader({ screen, setScreen }: { screen: Screen; setScreen: (s: Scree
       >
         <Text style={styles.tabButtonText}>Dex</Text>
       </TouchableOpacity>
+      <TouchableOpacity style={styles.signOutButton} onPress={onSignOut}>
+        <Text style={styles.signOutButtonText}>Sign Out</Text>
+      </TouchableOpacity>
     </View>
   );
 }
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [screen, setScreen] = useState<Screen>('camera');
   const [permission, requestPermission] = useCameraPermissions();
   const [photoUri, setPhotoUri] = useState<string | null>(null);
@@ -43,10 +59,30 @@ export default function App() {
   const [catchResult, setCatchResult] = useState<CatchResult | null>(null);
   const cameraRef = useRef<CameraView>(null);
 
+  useEffect(() => {
+    const unsubscribe = onAuthChange((nextUser) => {
+      setUser(nextUser);
+      setIsAuthLoading(false);
+    });
+    return unsubscribe;
+  }, []);
+
+  if (isAuthLoading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#4ade80" />
+      </View>
+    );
+  }
+
+  if (!user) {
+    return <AuthScreen />;
+  }
+
   if (screen === 'dex') {
     return (
       <SafeAreaView style={styles.container}>
-        <TabHeader screen={screen} setScreen={setScreen} />
+        <TabHeader screen={screen} setScreen={setScreen} onSignOut={signOutUser} />
         <DexScreen />
       </SafeAreaView>
     );
@@ -141,7 +177,7 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <TabHeader screen={screen} setScreen={setScreen} />
+      <TabHeader screen={screen} setScreen={setScreen} onSignOut={signOutUser} />
       <CameraView ref={cameraRef} style={styles.camera} facing="back" />
       <View style={styles.shutterRow}>
         <TouchableOpacity style={styles.shutter} onPress={takePhoto} />
@@ -171,4 +207,6 @@ const styles = StyleSheet.create({
   tabButton: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: '#161b22', borderWidth: 1, borderColor: '#30363d' },
   tabButtonActive: { backgroundColor: '#238636', borderColor: '#238636' },
   tabButtonText: { color: '#e6edf3', fontSize: 14, fontWeight: '600' },
+  signOutButton: { paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  signOutButtonText: { color: '#f85149', fontSize: 13, fontWeight: '600' },
 });
