@@ -2,7 +2,9 @@ import { useState, useRef } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View, Image, SafeAreaView, ActivityIndicator } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { identifyAnimal, CatchResult } from './lib/identify';
+import { saveCatch } from './lib/storage';
 import { Rarity } from './data/species';
+import DexScreen from './screens/DexScreen';
 
 const RARITY_COLORS: Record<Rarity, string> = {
   common: '#8b949e',
@@ -12,12 +14,43 @@ const RARITY_COLORS: Record<Rarity, string> = {
   legendary: '#f0b429',
 };
 
+type Screen = 'camera' | 'dex';
+
+function TabHeader({ screen, setScreen }: { screen: Screen; setScreen: (s: Screen) => void }) {
+  return (
+    <View style={styles.tabRow}>
+      <TouchableOpacity
+        style={[styles.tabButton, screen === 'camera' && styles.tabButtonActive]}
+        onPress={() => setScreen('camera')}
+      >
+        <Text style={styles.tabButtonText}>Camera</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.tabButton, screen === 'dex' && styles.tabButtonActive]}
+        onPress={() => setScreen('dex')}
+      >
+        <Text style={styles.tabButtonText}>Dex</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 export default function App() {
+  const [screen, setScreen] = useState<Screen>('camera');
   const [permission, requestPermission] = useCameraPermissions();
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [isIdentifying, setIsIdentifying] = useState(false);
   const [catchResult, setCatchResult] = useState<CatchResult | null>(null);
   const cameraRef = useRef<CameraView>(null);
+
+  if (screen === 'dex') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <TabHeader screen={screen} setScreen={setScreen} />
+        <DexScreen />
+      </SafeAreaView>
+    );
+  }
 
   if (!permission) {
     return <View style={styles.center}><Text style={styles.text}>Loading…</Text></View>;
@@ -54,8 +87,10 @@ export default function App() {
     setCatchResult(result);
   };
 
-  const handleAddToDex = () => {
+  const handleAddToDex = async () => {
+    if (!catchResult) return;
     console.log('Caught:', catchResult);
+    await saveCatch(catchResult);
     resetToCamera();
   };
 
@@ -105,12 +140,13 @@ export default function App() {
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
+      <TabHeader screen={screen} setScreen={setScreen} />
       <CameraView ref={cameraRef} style={styles.camera} facing="back" />
       <View style={styles.shutterRow}>
         <TouchableOpacity style={styles.shutter} onPress={takePhoto} />
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -131,4 +167,8 @@ const styles = StyleSheet.create({
   commonName: { color: '#e6edf3', fontSize: 26, fontWeight: '700', textAlign: 'center' },
   scientificName: { color: '#8b949e', fontSize: 16, fontStyle: 'italic', textAlign: 'center', marginTop: 4, marginBottom: 16 },
   xpText: { color: '#4ade80', fontSize: 20, fontWeight: '600', marginBottom: 8 },
+  tabRow: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8, gap: 8 },
+  tabButton: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: '#161b22', borderWidth: 1, borderColor: '#30363d' },
+  tabButtonActive: { backgroundColor: '#238636', borderColor: '#238636' },
+  tabButtonText: { color: '#e6edf3', fontSize: 14, fontWeight: '600' },
 });
