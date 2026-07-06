@@ -3,7 +3,7 @@ import { StyleSheet, Text, TouchableOpacity, View, Image, SafeAreaView, Activity
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { User } from 'firebase/auth';
 import { identifyAnimal, CatchResult } from './lib/identify';
-import { saveCatch } from './lib/storage';
+import { saveCatchRemote } from './lib/catchesApi';
 import { onAuthChange, signOutUser } from './lib/auth';
 import { Rarity } from './data/species';
 import DexScreen from './screens/DexScreen';
@@ -83,7 +83,7 @@ export default function App() {
     return (
       <SafeAreaView style={styles.container}>
         <TabHeader screen={screen} setScreen={setScreen} onSignOut={signOutUser} />
-        <DexScreen />
+        <DexScreen userId={user.uid} />
       </SafeAreaView>
     );
   }
@@ -124,9 +124,9 @@ export default function App() {
   };
 
   const handleAddToDex = async () => {
-    if (!catchResult) return;
+    if (!catchResult || !user) return;
     console.log('Caught:', catchResult);
-    await saveCatch(catchResult);
+    await saveCatchRemote(user.uid, catchResult);
     resetToCamera();
   };
 

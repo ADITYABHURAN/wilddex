@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, ScrollView } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, ActivityIndicator } from 'react-native';
 import { SPECIES, Rarity } from '../data/species';
-import { getCatchCountsBySpecies } from '../lib/storage';
+import { getCatchCountsBySpeciesRemote } from '../lib/catchesApi';
 
 const RARITY_COLORS: Record<Rarity, string> = {
   common: '#8b949e',
@@ -11,18 +11,42 @@ const RARITY_COLORS: Record<Rarity, string> = {
   legendary: '#f0b429',
 };
 
-export default function DexScreen() {
+export default function DexScreen({ userId }: { userId: string }) {
   const [counts, setCounts] = useState<Record<string, number>>({});
-  const [loaded, setLoaded] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getCatchCountsBySpecies().then((result) => {
-      setCounts(result);
-      setLoaded(true);
-    });
-  }, []);
+    setIsLoading(true);
+    setError(null);
+    getCatchCountsBySpeciesRemote(userId)
+      .then((result) => {
+        setCounts(result);
+        setIsLoading(false);
+      })
+      .catch(() => {
+        setError('Could not load your Dex. Check your connection and try again.');
+        setIsLoading(false);
+      });
+  }, [userId]);
 
   const discoveredCount = Object.keys(counts).length;
+
+  if (isLoading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#4ade80" />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>{error}</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -30,36 +54,35 @@ export default function DexScreen() {
         {discoveredCount} / {SPECIES.length} discovered
       </Text>
       <ScrollView contentContainerStyle={styles.grid}>
-        {loaded &&
-          SPECIES.map((species) => {
-            const count = counts[species.id] ?? 0;
-            const caught = count > 0;
-            return (
-              <View
-                key={species.id}
-                style={[
-                  styles.card,
-                  caught
-                    ? { borderColor: RARITY_COLORS[species.rarity] }
-                    : styles.cardLocked,
-                ]}
-              >
-                {caught ? (
-                  <>
-                    <View style={[styles.rarityDot, { backgroundColor: RARITY_COLORS[species.rarity] }]} />
-                    <Text style={styles.cardName}>{species.commonName}</Text>
-                    {count > 1 && (
-                      <View style={styles.countBadge}>
-                        <Text style={styles.countBadgeText}>x{count}</Text>
-                      </View>
-                    )}
-                  </>
-                ) : (
-                  <Text style={styles.cardLockedText}>???</Text>
-                )}
-              </View>
-            );
-          })}
+        {SPECIES.map((species) => {
+          const count = counts[species.id] ?? 0;
+          const caught = count > 0;
+          return (
+            <View
+              key={species.id}
+              style={[
+                styles.card,
+                caught
+                  ? { borderColor: RARITY_COLORS[species.rarity] }
+                  : styles.cardLocked,
+              ]}
+            >
+              {caught ? (
+                <>
+                  <View style={[styles.rarityDot, { backgroundColor: RARITY_COLORS[species.rarity] }]} />
+                  <Text style={styles.cardName}>{species.commonName}</Text>
+                  {count > 1 && (
+                    <View style={styles.countBadge}>
+                      <Text style={styles.countBadgeText}>x{count}</Text>
+                    </View>
+                  )}
+                </>
+              ) : (
+                <Text style={styles.cardLockedText}>???</Text>
+              )}
+            </View>
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -69,6 +92,8 @@ const CARD_SIZE = '31%';
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0d1117' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#0d1117' },
+  errorText: { color: '#f85149', fontSize: 15, textAlign: 'center' },
   header: {
     color: '#e6edf3',
     fontSize: 16,
