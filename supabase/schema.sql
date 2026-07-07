@@ -39,3 +39,41 @@ create index if not exists catches_user_id_idx on catches (user_id);
 --   look into Supabase's support for third-party JWT verification so RLS
 --   policies could check a verified Firebase UID directly. Either approach is
 --   future work, not something to solve in this task.
+
+-- WildDex daily streak tracking
+-- Run this manually in the Supabase dashboard: SQL Editor → paste → Run.
+-- Do not run this from application code.
+--
+-- Tracks each user's daily catch streak (current + longest), maintained by
+-- lib/streaks.ts whenever a catch is saved. `last_catch_date` is a date-only
+-- column (no time) so we can compare "did they catch something today /
+-- yesterday" with simple string equality instead of timestamp math.
+--
+-- KNOWN SIMPLIFICATION: the "today"/"yesterday" comparison uses the device's
+-- local date, not UTC. A user traveling across timezones right around
+-- midnight could see the streak behave oddly (e.g. miss a day it shouldn't,
+-- or not miss one it should). This is acceptable for an MVP and not something
+-- to fix in this task.
+create table if not exists user_streaks (
+  user_id text primary key,          -- Firebase UID, stored as plain text (same convention as catches.user_id)
+  current_streak integer not null default 0,
+  longest_streak integer not null default 0,
+  last_catch_date date,              -- date only, no time, for day-comparison
+  updated_at timestamptz not null default now()
+);
+
+-- RLS is intentionally OFF here too, for the same reasons documented above
+-- for `catches` — this is a dev-only simplification, not safe for production.
+
+-- WildDex catch location (GPS coordinates)
+-- Run this manually in the Supabase dashboard: SQL Editor → paste → Run.
+-- Do not run this from application code.
+--
+-- Foundation for future GPS territory/trading features (not built yet — this
+-- session only captures and stores the coordinates). Both columns are
+-- NULLABLE on purpose: if the user denies location permission or a fix is
+-- unavailable/times out, we still want the catch itself to save successfully
+-- (species/XP/streak matter more than location), just without coordinates for
+-- that row.
+alter table catches add column if not exists latitude numeric;
+alter table catches add column if not exists longitude numeric;

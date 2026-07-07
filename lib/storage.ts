@@ -4,6 +4,8 @@ import { CatchResult } from './identify';
 export type StoredCatch = CatchResult & {
   id: string;
   caughtAt: number;
+  latitude?: number;
+  longitude?: number;
 };
 
 const STORAGE_KEY = 'wilddex:catches';

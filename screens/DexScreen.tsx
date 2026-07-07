@@ -31,6 +31,20 @@ export default function DexScreen({ userId }: { userId: string }) {
   }, [userId]);
 
   const discoveredCount = Object.keys(counts).length;
+  const missingSpecies = SPECIES.filter((species) => !counts[species.id]);
+
+  let headerText: string;
+  if (missingSpecies.length === 0) {
+    headerText = `🎉 Full WildDex! All ${SPECIES.length} species discovered.`;
+  } else if (missingSpecies.length <= 3) {
+    const names = missingSpecies.map((species) => species.commonName).join(', ');
+    headerText =
+      missingSpecies.length === 1
+        ? `${discoveredCount}/${SPECIES.length} — only the ${names} left!`
+        : `${discoveredCount}/${SPECIES.length} — just need: ${names}`;
+  } else {
+    headerText = `${discoveredCount} / ${SPECIES.length} discovered`;
+  }
 
   if (isLoading) {
     return (
@@ -50,9 +64,7 @@ export default function DexScreen({ userId }: { userId: string }) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>
-        {discoveredCount} / {SPECIES.length} discovered
-      </Text>
+      <Text style={styles.header}>{headerText}</Text>
       <ScrollView contentContainerStyle={styles.grid}>
         {SPECIES.map((species) => {
           const count = counts[species.id] ?? 0;

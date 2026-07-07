@@ -1,10 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, Image, SafeAreaView, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, Image, SafeAreaView, ActivityIndicator, Alert } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { User } from 'firebase/auth';
 import { identifyAnimal, CatchResult } from './lib/identify';
 import { saveCatchRemote } from './lib/catchesApi';
 import { onAuthChange, signOutUser } from './lib/auth';
+import { getStreak, updateStreakOnCatch } from './lib/streaks';
+import { getGlobalCatchCount } from './lib/globalStats';
+import { requestLocationPermission, getCurrentLocation } from './lib/location';
 import { Rarity } from './data/species';
 import DexScreen from './screens/DexScreen';
 import AuthScreen from './screens/AuthScreen';
@@ -23,13 +26,20 @@ function TabHeader({
   screen,
   setScreen,
   onSignOut,
+  streak,
 }: {
   screen: Screen;
   setScreen: (s: Screen) => void;
   onSignOut: () => void;
+  streak: number | null;
 }) {
   return (
     <View style={styles.tabRow}>
+      {!!streak && (
+        <View style={styles.streakBadge}>
+          <Text style={styles.streakBadgeText}>🔥 {streak}</Text>
+        </View>
+      )}
       <TouchableOpacity
         style={[styles.tabButton, screen === 'camera' && styles.tabButtonActive]}
         onPress={() => setScreen('camera')}
@@ -57,6 +67,8 @@ export default function App() {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [isIdentifying, setIsIdentifying] = useState(false);
   const [catchResult, setCatchResult] = useState<CatchResult | null>(null);
+  const [streak, setStreak] = useState<number | null>(null);
+  const [globalCatchCount, setGlobalCatchCount] = useState<number | null>(null);
   const cameraRef = useRef<CameraView>(null);
 
   useEffect(() => {
@@ -66,6 +78,33 @@ export default function App() {
     });
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setStreak(null);
+      return;
+    }
+    getStreak(user.uid)
+      .then((info) => setStreak(info?.currentStreak ?? 0))
+      .catch(() => {});
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    // Best-effort: if denied, catches still save fine without coordinates.
+    requestLocationPermission().catch(() => {});
+  }, [user]);
+
+  useEffect(() => {
+    if (!catchResult) {
+      setGlobalCatchCount(null);
+      return;
+    }
+    setGlobalCatchCount(null);
+    getGlobalCatchCount(catchResult.species.id)
+      .then(setGlobalCatchCount)
+      .catch(() => {});
+  }, [catchResult]);
 
   if (isAuthLoading) {
     return (
@@ -82,7 +121,7 @@ export default function App() {
   if (screen === 'dex') {
     return (
       <SafeAreaView style={styles.container}>
-        <TabHeader screen={screen} setScreen={setScreen} onSignOut={signOutUser} />
+        <TabHeader screen={screen} setScreen={setScreen} onSignOut={signOutUser} streak={streak} />
         <DexScreen userId={user.uid} />
       </SafeAreaView>
     );
@@ -126,7 +165,17 @@ export default function App() {
   const handleAddToDex = async () => {
     if (!catchResult || !user) return;
     console.log('Caught:', catchResult);
-    await saveCatchRemote(user.uid, catchResult);
+    const location = await getCurrentLocation();
+    await saveCatchRemote(user.uid, catchResult, location);
+    try {
+      const { currentStreak, isNewRecord } = await updateStreakOnCatch(user.uid);
+      setStreak(currentStreak);
+      if (isNewRecord) {
+        Alert.alert('🔥 New record!', `${currentStreak}-day streak`);
+      }
+    } catch {
+      // Streak tracking is non-critical — don't block the catch flow on it.
+    }
     resetToCamera();
   };
 
@@ -141,6 +190,13 @@ export default function App() {
           <Text style={styles.commonName}>{species.commonName}</Text>
           <Text style={styles.scientificName}>{species.scientificName}</Text>
           <Text style={styles.xpText}>+{xpEarned} XP</Text>
+          {globalCatchCount !== null && (
+            <Text style={styles.globalCountText}>
+              {globalCatchCount === 0
+                ? '🌍 Be the first to catch this this week!'
+                : `🌍 ${globalCatchCount} ${globalCatchCount === 1 ? 'person' : 'people'} caught this in the last week`}
+            </Text>
+          )}
           <TouchableOpacity style={styles.button} onPress={handleAddToDex}>
             <Text style={styles.buttonText}>Add to Dex</Text>
           </TouchableOpacity>
@@ -177,7 +233,7 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <TabHeader screen={screen} setScreen={setScreen} onSignOut={signOutUser} />
+      <TabHeader screen={screen} setScreen={setScreen} onSignOut={signOutUser} streak={streak} />
       <CameraView ref={cameraRef} style={styles.camera} facing="back" />
       <View style={styles.shutterRow}>
         <TouchableOpacity style={styles.shutter} onPress={takePhoto} />
@@ -203,7 +259,10 @@ const styles = StyleSheet.create({
   commonName: { color: '#e6edf3', fontSize: 26, fontWeight: '700', textAlign: 'center' },
   scientificName: { color: '#8b949e', fontSize: 16, fontStyle: 'italic', textAlign: 'center', marginTop: 4, marginBottom: 16 },
   xpText: { color: '#4ade80', fontSize: 20, fontWeight: '600', marginBottom: 8 },
-  tabRow: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8, gap: 8 },
+  globalCountText: { color: '#8b949e', fontSize: 14, textAlign: 'center', marginBottom: 8 },
+  tabRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8, gap: 8 },
+  streakBadge: { paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
+  streakBadgeText: { color: '#f0b429', fontSize: 15, fontWeight: '700' },
   tabButton: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: '#161b22', borderWidth: 1, borderColor: '#30363d' },
   tabButtonActive: { backgroundColor: '#238636', borderColor: '#238636' },
   tabButtonText: { color: '#e6edf3', fontSize: 14, fontWeight: '600' },

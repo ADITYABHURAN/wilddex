@@ -10,6 +10,8 @@ type CatchRow = {
   confidence: number | null;
   xp_earned: number;
   caught_at: string;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 function speciesById(speciesId: string): Species {
@@ -25,15 +27,23 @@ function rowToStoredCatch(row: CatchRow): StoredCatch {
     confidence: row.confidence ?? 0,
     xpEarned: row.xp_earned,
     caughtAt: new Date(row.caught_at).getTime(),
+    latitude: row.latitude ?? undefined,
+    longitude: row.longitude ?? undefined,
   };
 }
 
-export async function saveCatchRemote(userId: string, catchResult: CatchResult): Promise<void> {
+export async function saveCatchRemote(
+  userId: string,
+  catchResult: CatchResult,
+  location?: { latitude: number; longitude: number } | null
+): Promise<void> {
   const { error } = await supabase.from('catches').insert({
     user_id: userId,
     species_id: catchResult.species.id,
     confidence: catchResult.confidence,
     xp_earned: catchResult.xpEarned,
+    latitude: location?.latitude ?? null,
+    longitude: location?.longitude ?? null,
   });
   if (error) throw error;
 }

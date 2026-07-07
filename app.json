@@ -9,6 +9,14 @@
     "ios": {
       "supportsTablet": true
     },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "WildDex uses your location to record where you caught each animal."
+        }
+      ]
+    ],
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
