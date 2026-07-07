@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View, ScrollView, ActivityIndicator } from 'react-native';
 import { SPECIES, Rarity } from '../data/species';
 import { getCatchCountsBySpeciesRemote } from '../lib/catchesApi';
+import { getUserTotalXp, computeLevel } from '../lib/userStats';
 
 const RARITY_COLORS: Record<Rarity, string> = {
   common: '#8b949e',
@@ -11,17 +12,19 @@ const RARITY_COLORS: Record<Rarity, string> = {
   legendary: '#f0b429',
 };
 
-export default function DexScreen({ userId }: { userId: string }) {
+export default function DexScreen({ userId, streak }: { userId: string; streak?: number | null }) {
   const [counts, setCounts] = useState<Record<string, number>>({});
+  const [totalXp, setTotalXp] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setIsLoading(true);
     setError(null);
-    getCatchCountsBySpeciesRemote(userId)
-      .then((result) => {
-        setCounts(result);
+    Promise.all([getCatchCountsBySpeciesRemote(userId), getUserTotalXp(userId)])
+      .then(([countsResult, totalXpResult]) => {
+        setCounts(countsResult);
+        setTotalXp(totalXpResult);
         setIsLoading(false);
       })
       .catch(() => {
@@ -29,6 +32,8 @@ export default function DexScreen({ userId }: { userId: string }) {
         setIsLoading(false);
       });
   }, [userId]);
+
+  const levelInfo = computeLevel(totalXp);
 
   const discoveredCount = Object.keys(counts).length;
   const missingSpecies = SPECIES.filter((species) => !counts[species.id]);
@@ -64,6 +69,10 @@ export default function DexScreen({ userId }: { userId: string }) {
 
   return (
     <View style={styles.container}>
+      <Text style={styles.progressText}>
+        Level {levelInfo.level} • {levelInfo.xpIntoLevel}/{levelInfo.xpForNextLevel} XP
+        {!!streak && ` • 🔥 ${streak}`}
+      </Text>
       <Text style={styles.header}>{headerText}</Text>
       <ScrollView contentContainerStyle={styles.grid}>
         {SPECIES.map((species) => {
@@ -106,12 +115,20 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0d1117' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#0d1117' },
   errorText: { color: '#f85149', fontSize: 15, textAlign: 'center' },
+  progressText: {
+    color: '#4ade80',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    paddingTop: 16,
+  },
   header: {
     color: '#e6edf3',
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
-    paddingVertical: 16,
+    paddingTop: 4,
+    paddingBottom: 16,
   },
   grid: {
     flexDirection: 'row',

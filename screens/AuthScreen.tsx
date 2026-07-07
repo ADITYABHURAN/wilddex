@@ -2,7 +2,11 @@ import { useState } from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { signInWithEmail, signUpWithEmail } from '../lib/auth';
 
-export default function AuthScreen() {
+export default function AuthScreen({
+  onAuthSuccess,
+}: {
+  onAuthSuccess?: (mode: 'signIn' | 'signUp') => void;
+}) {
   const [mode, setMode] = useState<'signIn' | 'signUp'>('signIn');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,7 +22,10 @@ export default function AuthScreen() {
       } else {
         await signInWithEmail(email, password);
       }
-      // On success, onAuthChange in App.tsx picks up the new session automatically.
+      // onAuthChange in App.tsx also picks up the new session automatically;
+      // this callback additionally tells the parent whether this was a fresh
+      // sign-up (to trigger onboarding) or an existing sign-in.
+      onAuthSuccess?.(mode);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {

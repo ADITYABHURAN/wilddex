@@ -31,3 +31,25 @@ export async function getCurrentLocation(): Promise<Coordinates | null> {
     return null;
   }
 }
+
+// Continuous tracking for the live map (separate from the one-time catch-time
+// fetch above). Never throws — returns null if permission is missing or
+// watching fails to start; the caller decides what to show in that case.
+export async function watchLocation(
+  onUpdate: (coords: Coordinates) => void
+): Promise<{ remove: () => void } | null> {
+  try {
+    const { status } = await Location.getForegroundPermissionsAsync();
+    if (status !== Location.PermissionStatus.GRANTED) return null;
+
+    const subscription = await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.Balanced, timeInterval: 3000, distanceInterval: 10 },
+      (position) => {
+        onUpdate({ latitude: position.coords.latitude, longitude: position.coords.longitude });
+      }
+    );
+    return subscription;
+  } catch {
+    return null;
+  }
+}

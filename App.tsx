@@ -1,16 +1,21 @@
 import { useState, useRef, useEffect } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, Image, SafeAreaView, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, Image, ActivityIndicator, Alert } from 'react-native';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { User } from 'firebase/auth';
 import { identifyAnimal, CatchResult } from './lib/identify';
-import { saveCatchRemote } from './lib/catchesApi';
+import { saveCatchRemote, getAllCatchesRemote } from './lib/catchesApi';
 import { onAuthChange, signOutUser } from './lib/auth';
 import { getStreak, updateStreakOnCatch } from './lib/streaks';
+import { getUserTotalXp, computeLevel } from './lib/userStats';
 import { getGlobalCatchCount } from './lib/globalStats';
 import { requestLocationPermission, getCurrentLocation } from './lib/location';
 import { Rarity } from './data/species';
 import DexScreen from './screens/DexScreen';
 import AuthScreen from './screens/AuthScreen';
+import SplashScreen from './screens/SplashScreen';
+import OnboardingScreen from './screens/OnboardingScreen';
+import MapScreen from './screens/MapScreen';
 
 const RARITY_COLORS: Record<Rarity, string> = {
   common: '#8b949e',
@@ -20,56 +25,75 @@ const RARITY_COLORS: Record<Rarity, string> = {
   legendary: '#f0b429',
 };
 
-type Screen = 'camera' | 'dex';
+type Screen = 'camera' | 'dex' | 'map';
 
-function TabHeader({
-  screen,
-  setScreen,
-  onSignOut,
-  streak,
-}: {
-  screen: Screen;
-  setScreen: (s: Screen) => void;
-  onSignOut: () => void;
-  streak: number | null;
-}) {
+function SignOutButton({ onPress }: { onPress: () => void }) {
+  const insets = useSafeAreaInsets();
   return (
-    <View style={styles.tabRow}>
-      {!!streak && (
-        <View style={styles.streakBadge}>
-          <Text style={styles.streakBadgeText}>🔥 {streak}</Text>
-        </View>
-      )}
-      <TouchableOpacity
-        style={[styles.tabButton, screen === 'camera' && styles.tabButtonActive]}
-        onPress={() => setScreen('camera')}
-      >
-        <Text style={styles.tabButtonText}>Camera</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.tabButton, screen === 'dex' && styles.tabButtonActive]}
-        onPress={() => setScreen('dex')}
-      >
-        <Text style={styles.tabButtonText}>Dex</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.signOutButton} onPress={onSignOut}>
-        <Text style={styles.signOutButtonText}>Sign Out</Text>
-      </TouchableOpacity>
-    </View>
+    <TouchableOpacity
+      style={[styles.signOutIconButton, { top: insets.top + 12 }]}
+      onPress={onPress}
+    >
+      <Text style={styles.signOutIconText}>🚪</Text>
+    </TouchableOpacity>
+  );
+}
+
+function ProfilePill({
+  level,
+  streak,
+  onPress,
+}: {
+  level: number;
+  streak: number | null;
+  onPress: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <TouchableOpacity
+      style={[styles.mapPill, styles.profilePill, { bottom: insets.bottom + 40 }]}
+      onPress={onPress}
+    >
+      <Text style={styles.profilePillText}>
+        Lv {level}
+        {!!streak && ` • 🔥 ${streak}`}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+function BackButton({ onPress, label = '← Map' }: { onPress: () => void; label?: string }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <TouchableOpacity style={[styles.backButton, { top: insets.top + 12 }]} onPress={onPress}>
+      <Text style={styles.backButtonText}>{label}</Text>
+    </TouchableOpacity>
   );
 }
 
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppContent />
+    </SafeAreaProvider>
+  );
+}
+
+function AppContent() {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [screen, setScreen] = useState<Screen>('camera');
+  const [screen, setScreen] = useState<Screen>('map');
   const [permission, requestPermission] = useCameraPermissions();
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [isIdentifying, setIsIdentifying] = useState(false);
   const [catchResult, setCatchResult] = useState<CatchResult | null>(null);
   const [streak, setStreak] = useState<number | null>(null);
+  const [totalXp, setTotalXp] = useState(0);
   const [globalCatchCount, setGlobalCatchCount] = useState<number | null>(null);
+  const [pendingOnboarding, setPendingOnboarding] = useState(false);
+  const [hasCatches, setHasCatches] = useState<boolean | null>(null);
   const cameraRef = useRef<CameraView>(null);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     const unsubscribe = onAuthChange((nextUser) => {
@@ -90,9 +114,29 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
+    if (!user) {
+      setTotalXp(0);
+      return;
+    }
+    getUserTotalXp(user.uid)
+      .then(setTotalXp)
+      .catch(() => {});
+  }, [user]);
+
+  useEffect(() => {
     if (!user) return;
     // Best-effort: if denied, catches still save fine without coordinates.
     requestLocationPermission().catch(() => {});
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setHasCatches(null);
+      return;
+    }
+    getAllCatchesRemote(user.uid)
+      .then((catches) => setHasCatches(catches.length > 0))
+      .catch(() => {});
   }, [user]);
 
   useEffect(() => {
@@ -107,22 +151,42 @@ export default function App() {
   }, [catchResult]);
 
   if (isAuthLoading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#4ade80" />
-      </View>
-    );
+    return <SplashScreen />;
   }
 
   if (!user) {
-    return <AuthScreen />;
+    return (
+      <AuthScreen
+        onAuthSuccess={(mode) => setPendingOnboarding(mode === 'signUp')}
+      />
+    );
+  }
+
+  if (pendingOnboarding) {
+    return <OnboardingScreen onDone={() => setPendingOnboarding(false)} />;
   }
 
   if (screen === 'dex') {
     return (
       <SafeAreaView style={styles.container}>
-        <TabHeader screen={screen} setScreen={setScreen} onSignOut={signOutUser} streak={streak} />
-        <DexScreen userId={user.uid} />
+        <DexScreen userId={user.uid} streak={streak} />
+        <BackButton onPress={() => setScreen('map')} />
+      </SafeAreaView>
+    );
+  }
+
+  if (screen === 'map') {
+    const { level } = computeLevel(totalXp);
+    return (
+      <SafeAreaView style={styles.container}>
+        <MapScreen />
+        <SignOutButton onPress={signOutUser} />
+        <ProfilePill level={level} streak={streak} onPress={() => setScreen('dex')} />
+        <View style={[styles.captureFabRow, { bottom: insets.bottom + 40 }]}>
+          <TouchableOpacity style={styles.captureFabButton} onPress={() => setScreen('camera')}>
+            <Text style={styles.fabIcon}>📷</Text>
+          </TouchableOpacity>
+        </View>
       </SafeAreaView>
     );
   }
@@ -167,6 +231,7 @@ export default function App() {
     console.log('Caught:', catchResult);
     const location = await getCurrentLocation();
     await saveCatchRemote(user.uid, catchResult, location);
+    setHasCatches(true);
     try {
       const { currentStreak, isNewRecord } = await updateStreakOnCatch(user.uid);
       setStreak(currentStreak);
@@ -177,12 +242,19 @@ export default function App() {
       // Streak tracking is non-critical — don't block the catch flow on it.
     }
     resetToCamera();
+    setScreen('map');
+  };
+
+  const handleCloseCameraFlow = () => {
+    resetToCamera();
+    setScreen('map');
   };
 
   if (catchResult) {
     const { species, xpEarned } = catchResult;
     return (
       <SafeAreaView style={styles.container}>
+        <BackButton onPress={handleCloseCameraFlow} />
         <View style={styles.center}>
           <View style={[styles.rarityBadge, { backgroundColor: RARITY_COLORS[species.rarity] }]}>
             <Text style={styles.rarityBadgeText}>{species.rarity.toUpperCase()}</Text>
@@ -211,6 +283,7 @@ export default function App() {
   if (photoUri) {
     return (
       <SafeAreaView style={styles.container}>
+        <BackButton onPress={handleCloseCameraFlow} />
         <Image source={{ uri: photoUri }} style={styles.preview} />
         {isIdentifying ? (
           <View style={styles.identifyingRow}>
@@ -233,8 +306,13 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <TabHeader screen={screen} setScreen={setScreen} onSignOut={signOutUser} streak={streak} />
+      <BackButton onPress={handleCloseCameraFlow} />
       <CameraView ref={cameraRef} style={styles.camera} facing="back" />
+      {hasCatches === false && (
+        <View style={styles.hintContainer} pointerEvents="none">
+          <Text style={styles.hintText}>Point at an animal and tap to catch it</Text>
+        </View>
+      )}
       <View style={styles.shutterRow}>
         <TouchableOpacity style={styles.shutter} onPress={takePhoto} />
       </View>
@@ -250,6 +328,17 @@ const styles = StyleSheet.create({
   preview: { flex: 1, resizeMode: 'contain' },
   shutterRow: { position: 'absolute', bottom: 48, width: '100%', alignItems: 'center' },
   shutter: { width: 76, height: 76, borderRadius: 38, backgroundColor: '#fff', borderWidth: 5, borderColor: '#4ade80' },
+  hintContainer: { position: 'absolute', bottom: 160, width: '100%', alignItems: 'center', paddingHorizontal: 24 },
+  hintText: {
+    color: '#e6edf3',
+    fontSize: 14,
+    textAlign: 'center',
+    backgroundColor: 'rgba(13,17,23,0.7)',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
   button: { backgroundColor: '#238636', paddingVertical: 14, paddingHorizontal: 28, borderRadius: 10, alignSelf: 'center', margin: 20 },
   secondaryButton: { backgroundColor: '#30363d', marginTop: 0 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
@@ -260,12 +349,48 @@ const styles = StyleSheet.create({
   scientificName: { color: '#8b949e', fontSize: 16, fontStyle: 'italic', textAlign: 'center', marginTop: 4, marginBottom: 16 },
   xpText: { color: '#4ade80', fontSize: 20, fontWeight: '600', marginBottom: 8 },
   globalCountText: { color: '#8b949e', fontSize: 14, textAlign: 'center', marginBottom: 8 },
-  tabRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8, gap: 8 },
-  streakBadge: { paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
-  streakBadgeText: { color: '#f0b429', fontSize: 15, fontWeight: '700' },
-  tabButton: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: '#161b22', borderWidth: 1, borderColor: '#30363d' },
-  tabButtonActive: { backgroundColor: '#238636', borderColor: '#238636' },
-  tabButtonText: { color: '#e6edf3', fontSize: 14, fontWeight: '600' },
-  signOutButton: { paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  signOutButtonText: { color: '#f85149', fontSize: 13, fontWeight: '600' },
+  mapPill: {
+    position: 'absolute',
+    backgroundColor: 'rgba(13,17,23,0.75)',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+  },
+  profilePill: { left: 24 },
+  profilePillText: { color: '#e6edf3', fontSize: 14, fontWeight: '700' },
+  signOutIconButton: {
+    position: 'absolute',
+    right: 16,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(13,17,23,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  signOutIconText: { fontSize: 18 },
+  backButton: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 10,
+    backgroundColor: 'rgba(13,17,23,0.75)',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+  },
+  backButtonText: { color: '#e6edf3', fontSize: 14, fontWeight: '600' },
+  captureFabRow: { position: 'absolute', width: '100%', alignItems: 'center' },
+  captureFabButton: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: '#fff',
+    borderWidth: 5,
+    borderColor: '#4ade80',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+  },
+  fabIcon: { fontSize: 28 },
 });
